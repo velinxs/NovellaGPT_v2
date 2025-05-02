@@ -1,0 +1,30 @@
+NovellaGPT Backup - April 26, 2025
+
+This is a backup of the working version of NovellaGPT with the following components:
+
+1. Core Functionality:
+   - storygen2.py: Main novella generation logic using Claude 3.7
+   - convert_pdf.py: PDF conversion with professional formatting
+
+2. Streamlit Web Interface:
+   - novella_app.py: Streamlit web application
+   - run_app.sh: Script to run the app directly
+   - start_app_background.sh: Script to run the app in the background
+   - stop_app.sh: Script to stop the background app
+
+3. Documentation:
+   - README.md: Main project documentation
+   - ROADMAP.md: Development roadmap and monetization strategy
+   - README_STREAMLIT.md: Instructions for the Streamlit app
+
+4. Configuration:
+   - .env: Contains the Anthropic API key
+
+This backup was created to preserve a working version before making further changes.
+
+Features in this version:
+- Claude 3.7 integration for novella generation (30-40k words)
+- PDF generation with professional formatting
+- User-friendly web interface with Streamlit
+- Progress tracking and file downloads
+- Command-line and web-based interfaces
