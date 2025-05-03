@@ -222,18 +222,22 @@ class AudiobookGenerator:
             print(f"Error generating audio: {e}")
             return None
     
-    def generate_audiobook(self, txt_filename, title, voice=None):
+    def generate_audiobook(self, txt_filename, title, voice=None, max_workers=8):
         """
-        Generate complete audiobook from a novella text file
+        Generate complete audiobook from a novella text file, using parallel audio generation for speed.
         
         Args:
             txt_filename (str): Path to text file
             title (str): Title of the novella
             voice (str, optional): Voice to use for TTS
-            
+            max_workers (int, optional): Number of parallel workers (adjust to your API rate limit)
+        
         Returns:
             tuple: (List of chapter audio files, combined audiobook file)
         """
+        import concurrent.futures
+        import shutil
+        
         # Clean the title for filenames
         clean_title = ''.join(c if c.isalnum() else '_' for c in title)
         
@@ -254,43 +258,58 @@ class AudiobookGenerator:
         # Flatten the list of lists
         chapters = [chunk for sublist in chapters for chunk in sublist]
         
-        # Keep track of all generated audio files
-        audio_files = []
+        # Prepare filenames for each chunk
+        chapter_filenames = [os.path.join(audiobook_dir, f"chapter_{i+1:03d}.mp3") for i in range(len(chapters))]
+        audio_files = [None] * len(chapters)
         combined = None
         
         try:
-            print(f"Generating audio for {len(chapters)} segments...")
+            print(f"Generating audio for {len(chapters)} segments in parallel...")
             
-            # Process each chapter
-            for i, chapter_text in enumerate(chapters):
-                print(f"Generating audio for segment {i+1}/{len(chapters)}...")
-                
-                # Generate audio file for this chapter
-                chapter_filename = os.path.join(audiobook_dir, f"chapter_{i+1:03d}.mp3")
+            def generate_for_index(i):
+                chapter_text = chapters[i]
+                chapter_filename = chapter_filenames[i]
                 audio_file = self.generate_audio_for_text(
-                    chapter_text, 
+                    chapter_text,
                     voice=voice,
                     output_file=chapter_filename
                 )
-                
-                if audio_file:
-                    audio_files.append(audio_file)
+                return i, audio_file
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(generate_for_index, i) for i in range(len(chapters))]
+                for future in concurrent.futures.as_completed(futures):
+                    i, audio_file = future.result()
+                    audio_files[i] = audio_file
                     print(f"Generated {audio_file}")
-                    
-                    # Introduce a small delay between API calls to avoid rate limits
-                    time.sleep(0.5)
+            
+            # Remove any None entries (in case of errors)
+            audio_files = [f for f in audio_files if f]
             
             # Combine all audio files into a single audiobook
             if audio_files:
                 combined_file = os.path.join("audio_files", f"{clean_title}_audiobook.mp3")
                 combined = self._combine_audio_files(audio_files, combined_file)
                 print(f"Combined audiobook saved to {combined}")
+                
+                # Delete individual chapter files after combining
+                for f in audio_files:
+                    try:
+                        os.remove(f)
+                    except Exception as e:
+                        print(f"Could not delete {f}: {e}")
+                # Optionally, remove the chapter directory if empty
+                try:
+                    if os.path.isdir(audiobook_dir) and not os.listdir(audiobook_dir):
+                        shutil.rmtree(audiobook_dir)
+                except Exception as e:
+                    print(f"Could not remove directory {audiobook_dir}: {e}")
             
             return audio_files, combined
-            
         except Exception as e:
             print(f"Error generating audiobook: {e}")
             return audio_files, combined
+
     
     def _combine_audio_files(self, audio_files, output_file):
         """
