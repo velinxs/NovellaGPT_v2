@@ -3,7 +3,7 @@ import os
 import time
 import tempfile
 from token_counter import token_counter, estimate_words, estimate_completion
-from storygen2 import generate_novella, convert_to_pdf
+from storygen2 import generate_novella, convert_to_pdf, convert_to_epub
 from audio_gen import AudiobookGenerator
 
 # Page config
@@ -60,6 +60,26 @@ if 'audiobook_path' not in st.session_state:
     st.session_state.audiobook_path = None
 if 'audio_segments' not in st.session_state:
     st.session_state.audio_segments = []
+if 'epub_path' not in st.session_state:
+    st.session_state.epub_path = None
+    
+# Initialize generation progress tracking state
+if 'gen_progress' not in st.session_state:
+    st.session_state.gen_progress = 0
+if 'gen_tokens' not in st.session_state:
+    st.session_state.gen_tokens = 0
+if 'gen_words' not in st.session_state:
+    st.session_state.gen_words = 0
+if 'gen_tokens_per_sec' not in st.session_state:
+    st.session_state.gen_tokens_per_sec = 0
+if 'gen_elapsed_min' not in st.session_state:
+    st.session_state.gen_elapsed_min = 0
+if 'gen_elapsed_sec' not in st.session_state:
+    st.session_state.gen_elapsed_sec = 0
+if 'gen_completed' not in st.session_state:
+    st.session_state.gen_completed = False
+if 'gen_update_time' not in st.session_state:
+    st.session_state.gen_update_time = time.time()
 
 # Sidebar for API key
 with st.sidebar:
@@ -105,6 +125,7 @@ with st.sidebar:
     - Rich character development
     - Complex plot structures
     - Professional PDF formatting
+    - EPUB export for Amazon KDP
     - MP3 audiobook generation
     
     [View on GitHub](https://github.com/yourusername/novellagpt)
@@ -145,7 +166,38 @@ with col2:
         progress_bar = st.empty()
         word_count_container = st.empty()
         
-        status_container.info("Ready to generate. Fill in the form and click 'Generate Novella'.")
+        # Check if generation is actively running by looking at session state values
+        if 'gen_progress' in st.session_state and st.session_state.gen_progress > 0:
+            # Format tokens with commas
+            tokens_display = f"{st.session_state.gen_tokens:,}" if hasattr(st.session_state, 'gen_tokens') else "0"
+            words_display = f"{st.session_state.gen_words:,}" if hasattr(st.session_state, 'gen_words') else "0"
+            
+            # Update UI with session state values
+            progress_bar.progress(st.session_state.gen_progress)
+            
+            # Update word counter with both tokens and estimated words
+            word_count_container.metric(
+                "Generation Progress", 
+                f"{words_display} words", 
+                f"{tokens_display} tokens"
+            )
+            
+            # Display status with time and rate
+            elapsed_min = st.session_state.gen_elapsed_min
+            elapsed_sec = st.session_state.gen_elapsed_sec
+            tokens_per_sec = st.session_state.gen_tokens_per_sec
+            completion = st.session_state.gen_progress
+            
+            status_container.info(
+                f"Generating: {elapsed_min}m {elapsed_sec}s elapsed" + 
+                f" | ~{tokens_per_sec:.0f} tokens/sec" +
+                f" | {completion:.1%} complete"
+            )
+            
+            # Add a note about auto-refreshing
+            st.caption("Progress updates automatically every few seconds...")
+        else:
+            status_container.info("Ready to generate. Fill in the form and click 'Generate Novella'.")
     else:
         st.success(f"Generation complete! Generated '{st.session_state.novella_title}'")
         st.metric("Word Count", st.session_state.word_count)
@@ -158,11 +210,12 @@ with col2:
             clean_title = st.session_state.novella_title.replace(" ", "_")
             txt_filename = f"{clean_title}.txt"
             pdf_filename = f"{clean_title}.pdf"
+            epub_filename = f"{clean_title}.epub"
             audiobook_filename = f"{clean_title}_audiobook.mp3"
             audiobook_path = os.path.join("audio_files", audiobook_filename)
             
             # Create columns for download buttons
-            col_txt, col_pdf, col_audio = st.columns(3)
+            col_txt, col_pdf, col_epub, col_audio = st.columns(4)
             
             # Text download button
             with col_txt:
@@ -189,6 +242,31 @@ with col2:
                     )
                 else:
                     st.error("PDF file not found")
+            
+            # EPUB download button
+            with col_epub:
+                # Check if EPUB exists or generate it on demand
+                if os.path.exists(epub_filename):
+                    with open(epub_filename, "rb") as epub_file:
+                        epub_data = epub_file.read()
+                    
+                    st.download_button(
+                        label="📱 Download EPUB",
+                        data=epub_data,
+                        file_name=epub_filename,
+                        mime="application/epub+zip",
+                        use_container_width=True
+                    )
+                else:
+                    # Button to generate EPUB
+                    if st.button("📱 Generate EPUB", use_container_width=True):
+                        try:
+                            with st.spinner("Generating EPUB..."):
+                                epub_file = convert_to_epub(txt_filename, st.session_state.novella_title)
+                                st.success(f"EPUB created: {epub_file}")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Error generating EPUB: {e}")
             
             # Audiobook download button
             with col_audio:
@@ -218,6 +296,8 @@ with col2:
             
             # Display file paths
             file_info = f"Files saved to:\n- TXT: {os.path.abspath(txt_filename)}\n- PDF: {os.path.abspath(pdf_filename)}"
+            if os.path.exists(epub_filename):
+                file_info += f"\n- EPUB: {os.path.abspath(epub_filename)}"
             if st.session_state.audiobook_complete and st.session_state.audiobook_path:
                 file_info += f"\n- MP3: {os.path.abspath(st.session_state.audiobook_path)}"
             st.info(file_info)
@@ -271,18 +351,32 @@ if generate_button:
                 clean_filename = "".join(c if c.isalnum() else "_" for c in title)
                 filename = f"{clean_filename}.txt"
                 
+                # Initialize session state for generation progress
+                if 'gen_progress' not in st.session_state:
+                    st.session_state.gen_progress = 0
+                if 'gen_tokens' not in st.session_state:
+                    st.session_state.gen_tokens = 0
+                if 'gen_words' not in st.session_state:
+                    st.session_state.gen_words = 0
+                if 'gen_tokens_per_sec' not in st.session_state:
+                    st.session_state.gen_tokens_per_sec = 0
+                if 'gen_elapsed_min' not in st.session_state:
+                    st.session_state.gen_elapsed_min = 0
+                if 'gen_elapsed_sec' not in st.session_state:
+                    st.session_state.gen_elapsed_sec = 0
+                if 'gen_completed' not in st.session_state:
+                    st.session_state.gen_completed = False
+                if 'gen_update_time' not in st.session_state:
+                    st.session_state.gen_update_time = time.time()
+                
                 # Create a monitoring function
                 def monitor_generation():
-                    """Monitor the generation process and update the UI"""
+                    """Monitor the generation process and update session state"""
                     last_tokens = 0
                     last_update_time = time.time()
-                    update_interval = 1.0  # Update UI every second
+                    update_interval = 1.0  # Update session state every second
                     
-                    try:
-                        status_container.info("Claude is generating your novella...")
-                    except Exception as e:
-                        # NoSessionContext error - can't update UI from thread
-                        print("Claude is generating your novella... (status container update failed)")
+                    print("Claude is generating your novella...")
                     
                     while True:
                         # Check if file exists yet
@@ -304,39 +398,25 @@ if generate_button:
                             time_diff = current_time - last_update_time
                             
                             if time_diff >= update_interval:
-                                # Update UI safely with try/except to handle NoSessionContext
-                                try:
-                                    # Update UI
-                                    progress_bar.progress(completion)
-                                    
-                                    # Format tokens with commas
-                                    tokens_display = f"{tokens:,}"
-                                    words_display = f"{word_estimate:,}"
-                                    
-                                    # Update word counter with both tokens and estimated words
-                                    word_count_container.metric(
-                                        "Generation Progress", 
-                                        f"{words_display} words", 
-                                        f"{tokens_display} tokens"
-                                    )
-                                    
-                                    tokens_per_sec = (tokens - last_tokens) / time_diff if time_diff > 0 else 0
-                                    
-                                    # Add time elapsed
-                                    elapsed = current_time - start_time
-                                    elapsed_min = int(elapsed // 60)
-                                    elapsed_sec = int(elapsed % 60)
-                                    
-                                    # Display status with time and rate
-                                    status_container.info(
-                                        f"Generating: {elapsed_min}m {elapsed_sec}s elapsed" + 
-                                        f" | ~{tokens_per_sec:.0f} tokens/sec" +
-                                        f" | {completion:.1%} complete"
-                                    )
-                                except Exception as e:
-                                    # NoSessionContext error - can't update UI from thread
-                                    # Print update to console instead
-                                    print(f"Generation progress: {word_estimate:,} words | {tokens:,} tokens | {completion:.1%} complete")
+                                # Update session state (thread-safe)
+                                tokens_per_sec = (tokens - last_tokens) / time_diff if time_diff > 0 else 0
+                                
+                                # Add time elapsed
+                                elapsed = current_time - start_time
+                                elapsed_min = int(elapsed // 60)
+                                elapsed_sec = int(elapsed % 60)
+                                
+                                # Update session state with progress data
+                                st.session_state.gen_progress = completion
+                                st.session_state.gen_tokens = tokens
+                                st.session_state.gen_words = word_estimate
+                                st.session_state.gen_tokens_per_sec = tokens_per_sec
+                                st.session_state.gen_elapsed_min = elapsed_min
+                                st.session_state.gen_elapsed_sec = elapsed_sec
+                                st.session_state.gen_update_time = time.time()
+                                
+                                # Print progress to console (useful for debugging)
+                                print(f"Generation progress: {word_estimate:,} words | {tokens:,} tokens | {completion:.1%} complete")
                                 
                                 # Reset for next update
                                 last_tokens = tokens
@@ -344,23 +424,22 @@ if generate_button:
                             
                             # Check for completion
                             if "--- END OF NOVELLA ---" in current_content:
-                                # Final update
-                                try:
-                                    progress_bar.progress(1.0)
-                                    status_container.success("Generation complete!")
-                                    
-                                    elapsed = time.time() - start_time
-                                    elapsed_min = int(elapsed // 60)
-                                    elapsed_sec = int(elapsed % 60)
-                                    
-                                    st.success(f"Novella generated in {elapsed_min}m {elapsed_sec}s")
-                                except Exception as e:
-                                    # NoSessionContext error - can't update UI from thread
-                                    print(f"Novella generated successfully in {elapsed:.2f} seconds!")
+                                # Final update to session state
+                                elapsed = time.time() - start_time
+                                elapsed_min = int(elapsed // 60)
+                                elapsed_sec = int(elapsed % 60)
+                                
+                                # Update final stats
+                                st.session_state.gen_progress = 1.0
+                                st.session_state.gen_elapsed_min = elapsed_min
+                                st.session_state.gen_elapsed_sec = elapsed_sec
+                                st.session_state.gen_completed = True
+                                
+                                print(f"Novella generated successfully in {elapsed_min}m {elapsed_sec}s")
                                 return
                                 
                         except Exception as e:
-                            # Don't show errors in the UI when reading partial files
+                            # Don't show errors when reading partial files
                             pass
                             
                         time.sleep(0.5)  # Check again in half a second
@@ -369,6 +448,30 @@ if generate_button:
                 monitor_thread = threading.Thread(target=monitor_generation)
                 monitor_thread.daemon = True  # Thread will exit when main program exits
                 monitor_thread.start()
+                
+                # Add auto-refresh mechanism to update UI based on session state
+                def auto_refresh():
+                    last_refresh_time = time.time()
+                    refresh_interval = 3.0  # Refresh UI every 3 seconds
+                    
+                    while not st.session_state.gen_completed:
+                        current_time = time.time()
+                        if current_time - last_refresh_time >= refresh_interval:
+                            # Trigger a rerun to update UI
+                            last_refresh_time = current_time
+                            try:
+                                time.sleep(0.1)  # Small delay to prevent race conditions
+                                st.rerun()
+                            except Exception as e:
+                                # If rerun fails, just continue
+                                print(f"Rerun failed: {e}")
+                        
+                        time.sleep(0.5)
+                
+                # Start auto-refresh thread
+                refresh_thread = threading.Thread(target=auto_refresh)
+                refresh_thread.daemon = True
+                refresh_thread.start()
                 
                 # Call generate_novella with streaming (this will block until complete)
                 content, final_title = generate_novella(prompt, title, system_prompt)
@@ -412,6 +515,14 @@ if generate_button:
                 st.success(f"PDF created successfully: {pdf_file}")
             except Exception as e:
                 st.warning(f"Could not generate PDF: {e}")
+                
+            # Generate EPUB from the text file (for Amazon KDP)
+            try:
+                epub_file = convert_to_epub(txt_filename, title)
+                st.session_state.epub_path = epub_file
+                st.success(f"EPUB created successfully: {epub_file}")
+            except Exception as e:
+                st.warning(f"Could not generate EPUB: {e}")
             
             # Check if we should generate audiobook immediately after novella generation
             if 'generate_audio' in locals() and generate_audio and openai_api_key:
