@@ -5,3 +5,4 @@ pydub>=0.25.1
 fpdf>=1.7.2
 python-dotenv>=1.1.0
 tiktoken>=0.9.0
+ebooklib>=0.18.0

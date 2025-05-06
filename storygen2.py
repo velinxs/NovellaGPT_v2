@@ -231,7 +231,17 @@ def convert_to_pdf(txt_filename, title):
         print("Please make sure convert_pdf.py is in the same directory.")
         return None
 
-def save_novella(content, title=None):
+def convert_to_epub(txt_filename, title, author="Generated with Claude 3.7"):
+    """Convert a text file to EPUB format for e-readers including Amazon KDP"""
+    try:
+        from convert_epub import convert_to_epub
+        return convert_to_epub(txt_filename, title, author)
+    except ImportError:
+        print("Error: convert_epub.py module not found.")
+        print("Please make sure convert_epub.py is in the same directory.")
+        return None
+
+def save_novella(content, title=None, generate_epub=False, author=None):
     """Save the complete generated novella to a file"""
     if not title:
         title = "generated_novella"
@@ -262,7 +272,14 @@ def save_novella(content, title=None):
     # Convert to PDF
     pdf_filename = convert_to_pdf(filename, title)
     
-    return filename, pdf_filename
+    # Convert to EPUB if requested
+    epub_filename = None
+    if generate_epub:
+        if not author:
+            author = "Generated with Claude 3.7"
+        epub_filename = convert_to_epub(filename, title, author)
+    
+    return filename, pdf_filename, epub_filename
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a novella using Claude 3.7")
@@ -270,6 +287,8 @@ if __name__ == "__main__":
     parser.add_argument("--title", type=str, help="Title for the novella", default=None)
     parser.add_argument("--api-key", type=str, help="Anthropic API key", default=None)
     parser.add_argument("--no-pdf", action="store_true", help="Skip PDF generation")
+    parser.add_argument("--epub", action="store_true", help="Generate EPUB format (for Amazon KDP)")
+    parser.add_argument("--author", type=str, help="Author name for EPUB metadata", default="Generated with Claude 3.7")
     
     args = parser.parse_args()
     
@@ -311,4 +330,13 @@ if __name__ == "__main__":
             print(f"PDF version saved to '{pdf_filename}'")
         except Exception as e:
             print(f"Error generating PDF: {e}")
+            print("The text version is still available.")
+    
+    # Generate EPUB if requested
+    if args.epub:
+        try:
+            epub_filename = convert_to_epub(txt_filename, title, args.author)
+            print(f"EPUB version saved to '{epub_filename}' (KDP-compatible)")
+        except Exception as e:
+            print(f"Error generating EPUB: {e}")
             print("The text version is still available.")
