@@ -54,7 +54,7 @@ First, create a detailed plan in your thinking tokens (30k tokens budget) only t
 7. Ensure Engagement
 8. Anything else you feel you need to think through out that would improve quality. remember you're ghostwriter.
 
-Then use the ~100k output tokens to generate the complete novella. The actual output (as opposed to thinking tokens) should entirely be a novella, as it will be directly saved to a txt file and later converted into a pdf ebook"""
+Then use the remaining ~100k output tokens to generate the complete novella. The actual output (as opposed to thinking tokens) should entirely be a novella, as it will be directly saved to a txt file and later converted into a pdf ebook"""
     
     print("Generating novella with Claude 3.7... (this may take several minutes)")
     print("Content will stream as it's generated. Press Ctrl+C to stop at any time.")
